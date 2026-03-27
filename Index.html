@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Inventario POS Pro</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="manifest" href="manifest.json">
+
+<style>
+*{box-sizing:border-box;font-family:'Segoe UI';}
+body{margin:0;background:linear-gradient(135deg,#f4f6f9,#e8f0ec);}
+.container{max-width:1400px;margin:auto;padding:20px;}
+.header{display:flex;align-items:center;justify-content:center;gap:20px;}
+.logo{width:80px;height:80px;border-radius:50%;}
+.card{background:white;padding:20px;border-radius:12px;margin-bottom:20px;}
+input{padding:10px;margin:5px;border-radius:8px;border:1px solid #ccc;}
+button{padding:8px;border-radius:8px;border:none;cursor:pointer;}
+.btn-agregar{background:#4CAF50;color:white;}
+.btn-eliminar{background:#f44336;color:white;}
+.btn-exportar{background:#ff9800;color:white;}
+table{width:100%;border-collapse:collapse;}
+th{background:#4CAF50;color:white;padding:10px;}
+td{padding:8px;text-align:center;border-bottom:1px solid #ddd;}
+.pagado{background:#d4edda;}
+.deuda{background:#f8d7da;}
+.total{text-align:right;font-weight:bold;margin-top:10px;}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<div class="header">
+<img src="logo.jpg" class="logo">
+<div class="titulo">
+<h1>Inventario POS Pro</h1>
+<span>esencias y aromas Kaye</span>
+</div>
+</div>
+
+<!-- STOCK -->
+<div class="card">
+<h2>Stock</h2>
+
+<input id="buscarStock" placeholder="🔍 Buscar producto..." onkeyup="mostrarStock()"><br>
+
+<input id="codProd" placeholder="Código">
+<input id="nombreProd" placeholder="Producto">
+<input id="stock" type="number" placeholder="Stock">
+<input id="compra" type="number" placeholder="Compra">
+<input id="venta" type="number" placeholder="Venta">
+
+<button class="btn-agregar" onclick="agregarStock()">Guardar</button>
+</div>
+
+<div class="card">
+<table>
+<thead>
+<tr><th>Código</th><th>Producto</th><th>Stock</th><th>Compra</th><th>Venta</th><th>Acciones</th></tr>
+</thead>
+<tbody id="tablaStock"></tbody>
+</table>
+</div>
+
+<!-- VENTAS -->
+<div class="card">
+<h2>Ventas</h2>
+
+<input id="codVenta" placeholder="Código" onkeyup="buscarProductoVenta()">
+<input id="nombreVenta" disabled>
+<input id="stockDisponible" disabled><br>
+
+<input id="cantidadVenta" type="number" placeholder="Cantidad">
+<input id="cliente" placeholder="Cliente">
+<input id="vendedor" placeholder="Vendedor">
+<input id="fecha" type="date">
+<label>Pagado <input type="checkbox" id="pagado"></label><br>
+
+<button class="btn-agregar" onclick="agregarVenta()">Guardar Venta</button>
+</div>
+
+<div class="card">
+<input type="month" id="filtroMes" onchange="mostrarVentas()">
+<button class="btn-exportar" onclick="exportarExcel()">Exportar Excel</button>
+
+<table>
+<thead>
+<tr>
+<th>Producto</th><th>Código</th><th>Cant</th><th>Total</th>
+<th>Ganancia</th><th>Cliente</th><th>Vendedor</th>
+<th>Fecha</th><th>Pagado</th><th>Acciones</th>
+</tr>
+</thead>
+<tbody id="tablaVentas"></tbody>
+</table>
+
+<div class="total" id="totalGeneral"></div>
+<div class="total" id="gananciaGeneral"></div>
+<div class="total" id="deudaGeneral"></div>
+
+<!-- 🔥 VENTAS POR VENDEDOR -->
+<div class="total" id="ventasPorVendedor"></div>
+
+</div>
+
+<!-- GRAFICO -->
+<div class="card">
+<h2>Gráfico de Ventas</h2>
+<canvas id="grafico"></canvas>
+</div>
+
+</div>
+
+<script>
+let inventario=JSON.parse(localStorage.getItem("inventario"))||[];
+let ventas=JSON.parse(localStorage.getItem("ventas"))||[];
+let chart=null;
+
+/* AUTO BACKUP */
+setInterval(()=>{
+localStorage.setItem("backup_auto",JSON.stringify({inventario,ventas}));
+},30000);
+
+/* STOCK */
+function agregarStock(){
+let p={
+codigo:codProd.value,
+nombre:nombreProd.value,
+stock:+stock.value,
+compra:+compra.value,
+venta:+venta.value
+};
+inventario.push(p);
+localStorage.setItem("inventario",JSON.stringify(inventario));
+mostrarStock();
+}
+
+/* BUSCADOR */
+function mostrarStock(){
+tablaStock.innerHTML="";
+let filtro=buscarStock.value.toLowerCase();
+
+inventario.forEach((p,i)=>{
+if(
+p.nombre.toLowerCase().includes(filtro) ||
+p.codigo.toLowerCase().includes(filtro)
+){
+tablaStock.innerHTML+=`
+<tr>
+<td>${p.codigo}</td>
+<td>${p.nombre}</td>
+<td>${p.stock}</td>
+<td>${p.compra}</td>
+<td>${p.venta}</td>
+<td>
+<button class="btn-eliminar" onclick="eliminarStock(${i})">X</button>
+</td>
+</tr>`;
+}
+});
+}
+
+function eliminarStock(i){
+inventario.splice(i,1);
+localStorage.setItem("inventario",JSON.stringify(inventario));
+mostrarStock();
+}
+
+/* VENTAS */
+function buscarProductoVenta(){
+let p=inventario.find(x=>x.codigo==codVenta.value);
+if(p){
+nombreVenta.value=p.nombre;
+stockDisponible.value=p.stock;
+}else{
+nombreVenta.value="";
+stockDisponible.value="";
+}
+}
+
+function agregarVenta(){
+let p=inventario.find(x=>x.codigo==codVenta.value);
+let cant=+cantidadVenta.value;
+
+if(!p||p.stock<cant)return alert("Error stock");
+
+let v={
+codigo:p.codigo,
+nombre:p.nombre,
+cantidad:cant,
+compra:p.compra,
+venta:p.venta,
+cliente:cliente.value,
+vendedor:vendedor.value,
+fecha:fecha.value,
+pagado:pagado.checked
+};
+
+ventas.push(v);
+p.stock-=cant;
+
+localStorage.setItem("ventas",JSON.stringify(ventas));
+localStorage.setItem("inventario",JSON.stringify(inventario));
+
+mostrarStock();
+mostrarVentas();
+}
+
+/* MOSTRAR VENTAS */
+function mostrarVentas(){
+tablaVentas.innerHTML="";
+let total=0,gan=0,deuda=0;
+let filtro=filtroMes.value;
+
+let resumenVendedor={};
+
+ventas.forEach((v,i)=>{
+
+if(filtro && !v.fecha.startsWith(filtro))return;
+
+let t=v.cantidad*v.venta;
+let g=(v.venta-v.compra)*v.cantidad;
+
+total+=t;
+gan+=g;
+if(!v.pagado)deuda+=t;
+
+/* 🔥 ACUMULAR POR VENDEDOR */
+resumenVendedor[v.vendedor]=(resumenVendedor[v.vendedor]||0)+t;
+
+tablaVentas.innerHTML+=`
+<tr class="${v.pagado?'pagado':'deuda'}">
+<td>${v.nombre}</td>
+<td>${v.codigo}</td>
+<td>${v.cantidad}</td>
+<td>${t}</td>
+<td>${g}</td>
+<td>${v.cliente}</td>
+<td>${v.vendedor}</td>
+<td>${v.fecha}</td>
+<td>${v.pagado?'✔':'❌'}</td>
+<td>
+<button onclick="eliminarVenta(${i})">X</button>
+</td>
+</tr>`;
+});
+
+totalGeneral.innerText="Ventas: $"+total;
+gananciaGeneral.innerText="Ganancia: $"+gan;
+deudaGeneral.innerText="Deuda: $"+deuda;
+
+/* 🔥 MOSTRAR RESUMEN */
+ventasPorVendedor.innerText="Ventas por vendedor: " +
+Object.entries(resumenVendedor)
+.map(([v,total])=> v + ": $" + total)
+.join(" | ");
+
+generarGrafico();
+}
+
+function eliminarVenta(i){
+let v=ventas[i];
+let p=inventario.find(x=>x.codigo==v.codigo);
+if(p)p.stock+=v.cantidad;
+
+ventas.splice(i,1);
+
+localStorage.setItem("ventas",JSON.stringify(ventas));
+localStorage.setItem("inventario",JSON.stringify(inventario));
+
+mostrarStock();
+mostrarVentas();
+}
+
+/* GRAFICO */
+function generarGrafico(){
+let datos={};
+
+ventas.forEach(v=>{
+if(!v.fecha)return;
+let mes=v.fecha.substring(0,7);
+datos[mes]=(datos[mes]||0)+(v.cantidad*v.venta);
+});
+
+let labels=Object.keys(datos);
+let valores=Object.values(datos);
+
+if(chart)chart.destroy();
+
+chart=new Chart(document.getElementById("grafico"),{
+type:"bar",
+data:{labels:labels,datasets:[{label:"Ventas",data:valores}]}
+});
+}
+
+/* EXPORTAR */
+function exportarExcel(){
+let csv="Producto,Codigo,Cantidad,Total,Ganancia,Cliente,Vendedor,Fecha,Pagado\n";
+
+ventas.forEach(v=>{
+let t=v.cantidad*v.venta;
+let g=(v.venta-v.compra)*v.cantidad;
+csv+=`${v.nombre},${v.codigo},${v.cantidad},${t},${g},${v.cliente},${v.vendedor},${v.fecha},${v.pagado}\n`;
+});
+
+let blob=new Blob([csv]);
+let a=document.createElement("a");
+a.href=URL.createObjectURL(blob);
+a.download="ventas.csv";
+a.click();
+}
+
+/* INIT */
+mostrarStock();
+mostrarVentas();
+
+/* PWA */
+if("serviceWorker" in navigator){
+navigator.serviceWorker.register("sw.js");
+}
+</script>
+
+</body>
+</html>
